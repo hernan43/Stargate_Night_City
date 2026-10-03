@@ -2,6 +2,7 @@
 #pragma once
 #include <Arduino.h>
 #include <stdio.h>
+#include <string.h>
 #include <ESP8266WiFi.h>
 #include <Wire.h>
 #include <si5351.h>
@@ -33,6 +34,16 @@ void stargateOledTimeout(uint32_t now) {
   sgOledSleeping = true;
 }
 static constexpr unsigned SG_BT_PIN = 16, SG_RGB_PIN = 14, SG_PAGE_COUNT = 10;
+// Logical page IDs stay stable; this is the order seen from the startup screen.
+static constexpr unsigned SG_PAGE_ORDER[SG_PAGE_COUNT] = {6, 0, 1, 2, 3, 4, 5, 8, 7, 9};
+
+unsigned stargateAdjacentPage(unsigned current, bool next) {
+  for (unsigned i = 0; i < SG_PAGE_COUNT; ++i) {
+    if (SG_PAGE_ORDER[i] != current) continue;
+    return SG_PAGE_ORDER[(i + (next ? 1 : SG_PAGE_COUNT - 1)) % SG_PAGE_COUNT];
+  }
+  return SG_CPU_PAGE;
+}
 static bool sgBtOn = SG_BT_DEFAULT_ON, sgEditing = false;
 static LightMode sgLightMode = LightMode::Off;
 static unsigned sgLightColor = 0, sgBrightness = SG_RGB_DEFAULT_BRIGHTNESS;
@@ -123,8 +134,8 @@ void stargateMenuPress(unsigned key, bool actualWifi, uint32_t now) {
     else if (sgPage == 5) sgLedCount = (int(sgLedCount) - 1 + direction + int(SG_RGB_MAX_LEDS)) % SG_RGB_MAX_LEDS + 1;
     sgRgbEpoch = now;
     sgRgbDirty = true;
-  } else if (key == 1) sgPage = (sgPage + SG_PAGE_COUNT - 1) % SG_PAGE_COUNT;
-  else if (key == 2) sgPage = (sgPage + 1) % SG_PAGE_COUNT;
+  } else if (key == 1) sgPage = stargateAdjacentPage(sgPage, false);
+  else if (key == 2) sgPage = stargateAdjacentPage(sgPage, true);
   else if (sgPage == 0) sgRadio.toggle(actualWifi);
   else if (sgPage == 1) {
     sgBtOn = !sgBtOn;
@@ -253,6 +264,15 @@ void stargateDrawCpu(bool actualWifi) {
   sgOled.drawFastVLine(127, 27, 4, SSD1306_WHITE);
 }
 
+// Short titles use 2x2 text. Long titles use 1x2 so their full names fit.
+// Both are twice the height of values and hints on this 128x32 display.
+void stargatePageTitle(const char* title) {
+  sgOled.setTextSize(strlen(title) <= 10 ? 2 : 1, 2);
+  sgOled.setCursor(0, 0); sgOled.print(title);
+  sgOled.drawFastHLine(0, 15, 128, SSD1306_WHITE);
+  sgOled.setTextSize(1); sgOled.setCursor(0, 16);
+}
+
 void stargateDraw(bool actualWifi, bool protocolIdle) {
   if (!sgOledOK || sgOledSleeping || !protocolIdle || Serial.available()) return;
   const uint32_t now = millis();
@@ -266,44 +286,50 @@ void stargateDraw(bool actualWifi, bool protocolIdle) {
     sgOled.display();
     return;
   }
-  sgOled.println(F("STARGATE alpha 0.3"));
   if (!sgClockOK) {
-    sgOled.println(F("CLOCK INIT FAILED"));
+    stargatePageTitle("CLOCK ERROR");
+    sgOled.println(F("Clock init failed"));
     sgOled.println(F("Do not use MSX yet"));
   } else if (sgPage == 0) {
-    sgOled.print(F("WiFi: "));
-    sgOled.println(!actualWifi ? F("OFF") : WiFi.status() == WL_CONNECTED ? F("CONNECTED") : F("CONNECTING"));
-    sgOled.print(F("IP: "));
+    stargatePageTitle("WIFI");
+    sgOled.setCursor(62, 4);
+    sgOled.print(!actualWifi ? F("OFF") : WiFi.status() == WL_CONNECTED ? F("CONNECTED") : F("CONNECTING"));
+    sgOled.setCursor(0, 16); sgOled.print(F("IP: "));
     if (actualWifi && WiFi.status() == WL_CONNECTED) sgOled.println(WiFi.localIP());
     else sgOled.println(actualWifi ? F("waiting...") : F("--"));
     sgOled.println(sgRadio.queued() ? F("Change queued...") : F("SW4 / SEL: toggle"));
   } else if (sgPage == 1) {
-    sgOled.print(F("Bluetooth: ")); sgOled.println(sgBtOn ? F("ON") : F("OFF"));
-    sgOled.println(F("Cassette audio input"));
-    sgOled.println(F("< > page  SEL toggle"));
+    stargatePageTitle("BLUETOOTH");
+    sgOled.println(sgBtOn ? F("Power: ON") : F("Power: OFF"));
+    sgOled.println(F("SEL: toggle"));
   } else if (sgPage >= 2 && sgPage <= 5) {
     if (sgPage == 2) {
-      sgOled.print(F("RGB mode: ")); sgOled.println(SG_MODE_NAMES[unsigned(sgLightMode)]);
+      stargatePageTitle("RGB MODE");
+      sgOled.println(SG_MODE_NAMES[unsigned(sgLightMode)]);
     } else if (sgPage == 3) {
-      sgOled.print(F("RGB color: ")); sgOled.println(SG_COLOR_NAMES[sgLightColor]);
+      stargatePageTitle("RGB COLOR");
+      sgOled.print(SG_COLOR_NAMES[sgLightColor]);
+      sgOled.println(sgLightMode == LightMode::Cycle ? F(" / auto cycle") : F(""));
     } else if (sgPage == 4) {
-      sgOled.print(F("RGB brightness: ")); sgOled.print(sgBrightness); sgOled.println(F("%"));
+      stargatePageTitle("BRIGHTNESS");
+      sgOled.print(sgBrightness); sgOled.println(F("%"));
     } else {
-      sgOled.print(F("RGB LED count: ")); sgOled.println(sgLedCount);
+      stargatePageTitle("LED COUNT");
+      sgOled.print(sgLedCount); sgOled.println(F(" LEDs"));
     }
     if (!sgPixelsOK) sgOled.println(F("RGB buffer failed"));
-    else if (sgPage == 3 && sgLightMode == LightMode::Cycle) sgOled.println(F("Cycle uses all colors"));
-    else sgOled.println(sgEditing ? F("Editing / preview") : F("SEL to edit"));
-    sgOled.println(sgEditing ? F("< > change  SEL done") : F("< > page"));
+    else sgOled.println(sgEditing ? F("< > adjust  SEL done") : F("SEL: edit"));
   } else if (sgPage == 7) {
-    sgOled.print(F("ADC: ")); sgOled.println(sgAdc);
-    sgOled.println(F("SW6 prev SW7 next"));
+    stargatePageTitle("DIAGNOSTICS");
+    sgOled.print(F("Button ADC: ")); sgOled.println(sgAdc);
+    sgOled.println(F("Night City v0.3.1"));
   } else if (sgPage == 8) {
-    sgOled.print(F("WiFi at boot: ")); sgOled.println(sgWifiBootOn ? F("ON") : F("OFF"));
-    sgOled.println(F("Save to keep at boot"));
-    sgOled.println(F("< > page  SEL toggle"));
+    stargatePageTitle("WIFI AT BOOT");
+    sgOled.print(sgWifiBootOn ? F("ON") : F("OFF"));
+    sgOled.println(F(" / save to keep"));
+    sgOled.println(F("SEL: toggle"));
   } else if (sgPage == 9) {
-    sgOled.println(F("Save settings"));
+    stargatePageTitle("SAVE SETTINGS");
     if (!sgPreferenceStore.ready()) sgOled.println(F("Storage unavailable"));
     else if (sgSettingsNotice == SettingsNotice::Queued) sgOled.println(F("Waiting for idle..."));
     else if (sgSettingsNotice == SettingsNotice::Failed) sgOled.println(F("Save failed: retry"));
@@ -311,7 +337,7 @@ void stargateDraw(bool actualWifi, bool protocolIdle) {
     else if (sgSettingsNotice == SettingsNotice::Saved) sgOled.println(F("Settings saved"));
     else if (sgSettingsNotice == SettingsNotice::Unchanged) sgOled.println(F("Already saved"));
     else sgOled.println(F("Settings up to date"));
-    sgOled.println(F("< > page  SEL save"));
+    sgOled.println(F("SEL: save"));
   }
   sgOled.display();
 }
