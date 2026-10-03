@@ -335,7 +335,11 @@ void ScheduleTimeoutCheck() {
 void setup() {
   stargateHardwareBegin();
   WiFi.persistent(true);
-  LittleFS.begin();
+  // Do not erase existing certificates/preferences if mounting fails.
+  LittleFSConfig sgFsConfig;
+  sgFsConfig.setAutoFormat(false);
+  LittleFS.setConfig(sgFsConfig);
+  stargateLoadPreferences(LittleFS.begin());
   EEPROM.begin(32);
 #ifdef  Zanoto_Cartridge
   Serial.begin(115200);
@@ -352,6 +356,10 @@ void setup() {
   Serial.println(chVer);
   Serial.println("(c) 2019-2025 Oduvaldo Pavan Junior - ducasp@gmail.com");
   validateConfigFile();
+  // A saved Stargate startup preference overrides UNAPI's adapter-off setting
+  // in RAM only, just as an explicit SW4 enable does.
+  if (sgWifiBootOn && sgClockOK && stDeviceConfiguration.ucAutoClock == 3)
+    stDeviceConfiguration.ucAutoClock = 0;
   longReadyTimeOut = 0;
   btReadyRetries = 3;
   btReceivedCommand = false;
@@ -2364,6 +2372,8 @@ void loop() {
     stargateApplyRadio();
   if (Serial.available())
     received_data_parser();
+  stargateSaveWhenIdle(btState == RX_PARSER_IDLE && !bSerialUpdateInProgress &&
+                      uint32_t(millis() - sgLastSerial) >= 100);
   stargateUpdateRgb(btState == RX_PARSER_IDLE && !bSerialUpdateInProgress &&
                    uint32_t(millis() - sgLastSerial) >= 3);
   stargateDraw(bWiFiOn, btState == RX_PARSER_IDLE);

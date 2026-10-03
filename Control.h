@@ -26,6 +26,7 @@ class RadioIntent {
 public:
   bool enabled() const { return wanted; }
   bool queued() const { return pending; }
+  void restoreAtBoot(bool enabled) { wanted = enabled; pending = false; }
   void toggle(bool actual) {
     wanted = !(pending ? wanted : actual);
     pending = true;

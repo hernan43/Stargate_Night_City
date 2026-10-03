@@ -12,6 +12,7 @@
 #include "BoardConfig.h"
 #include "Lighting.h"
 #include "EffectsConfig.h"
+#include "StargatePreferenceStore.h"
 
 static RadioIntent sgRadio;
 static Press sgSwitch, sgKeys[3];
@@ -31,7 +32,7 @@ void stargateOledTimeout(uint32_t now) {
   sgOled.ssd1306_command(SSD1306_DISPLAYOFF);
   sgOledSleeping = true;
 }
-static constexpr unsigned SG_BT_PIN = 16, SG_RGB_PIN = 14, SG_PAGE_COUNT = 8;
+static constexpr unsigned SG_BT_PIN = 16, SG_RGB_PIN = 14, SG_PAGE_COUNT = 10;
 static bool sgBtOn = SG_BT_DEFAULT_ON, sgEditing = false;
 static LightMode sgLightMode = LightMode::Off;
 static unsigned sgLightColor = 0, sgBrightness = SG_RGB_DEFAULT_BRIGHTNESS;
@@ -40,6 +41,39 @@ static Adafruit_NeoPixel sgPixels(SG_RGB_MAX_LEDS, SG_RGB_PIN, NEO_GRB + NEO_KHZ
 static bool sgPixelsOK = false, sgRgbDirty = true;
 static uint32_t sgRgbEpoch = 0, sgRgbAt = 0, sgRgbBusyAt = 0;
 static uint32_t sgRgbLastPacked = 0;
+static bool sgWifiBootOn = false;
+static StargatePreferenceStore sgPreferenceStore;
+static StargatePreferences sgPendingPreferences;
+enum class SettingsNotice { None, Queued, Saved, Unchanged, Failed };
+static SettingsNotice sgSettingsNotice = SettingsNotice::None;
+
+StargatePreferences stargateCurrentPreferences() {
+  StargatePreferences p;
+  p.bluetooth = sgBtOn; p.wifiAtBoot = sgWifiBootOn; p.mode = sgLightMode;
+  p.color = sgLightColor; p.brightness = sgBrightness; p.count = sgLedCount;
+  return p;
+}
+
+void stargateLoadPreferences(bool filesystemReady) {
+  StargatePreferences p; // Fallback defaults if no valid record can be read.
+  sgPreferenceStore.begin(filesystemReady, p);
+  sgBtOn = p.bluetooth; sgWifiBootOn = p.wifiAtBoot;
+  sgLightMode = p.mode; sgLightColor = p.color;
+  sgBrightness = p.brightness; sgLedCount = p.count;
+  digitalWrite(SG_BT_PIN, sgBtOn ? HIGH : LOW);
+  sgRadio.restoreAtBoot(sgWifiBootOn);
+  sgRgbEpoch = millis(); sgRgbDirty = true;
+  sgSettingsNotice = SettingsNotice::None;
+}
+
+void stargateSaveWhenIdle(bool protocolIdle) {
+  if (sgSettingsNotice != SettingsNotice::Queued || !protocolIdle || Serial.available()) return;
+  const PreferenceSaveResult result = sgPreferenceStore.save(sgPendingPreferences);
+  sgSettingsNotice = result == PreferenceSaveResult::Saved ? SettingsNotice::Saved :
+                     result == PreferenceSaveResult::Unchanged ? SettingsNotice::Unchanged :
+                     SettingsNotice::Failed;
+  sgDrawAt = millis() - 250;
+}
 
 void stargateEffectsBegin() {
   // GPIO16 drives R41 -> PC817 -> Q3 -> Bluetooth module power: HIGH = on.
@@ -96,6 +130,12 @@ void stargateMenuPress(unsigned key, bool actualWifi, uint32_t now) {
     sgBtOn = !sgBtOn;
     digitalWrite(SG_BT_PIN, sgBtOn ? HIGH : LOW);
   } else if (sgPage >= 2 && sgPage <= 5) sgEditing = true;
+  else if (sgPage == 8) sgWifiBootOn = !sgWifiBootOn;
+  else if (sgPage == 9 && sgSettingsNotice != SettingsNotice::Queued) {
+    // Snapshot the values now; later edits must not alter an already queued save.
+    sgPendingPreferences = stargateCurrentPreferences();
+    sgSettingsNotice = SettingsNotice::Queued;
+  }
 }
 
 // PCB D4 WIFI_LED: GPIO2 -> R37 (220 ohms) -> LED anode; cathode -> GND.
@@ -226,7 +266,7 @@ void stargateDraw(bool actualWifi, bool protocolIdle) {
     sgOled.display();
     return;
   }
-  sgOled.println(F("STARGATE alpha 0.2.3"));
+  sgOled.println(F("STARGATE alpha 0.3"));
   if (!sgClockOK) {
     sgOled.println(F("CLOCK INIT FAILED"));
     sgOled.println(F("Do not use MSX yet"));
@@ -255,9 +295,23 @@ void stargateDraw(bool actualWifi, bool protocolIdle) {
     else if (sgPage == 3 && sgLightMode == LightMode::Cycle) sgOled.println(F("Cycle uses all colors"));
     else sgOled.println(sgEditing ? F("Editing / preview") : F("SEL to edit"));
     sgOled.println(sgEditing ? F("< > change  SEL done") : F("< > page"));
-  } else {
+  } else if (sgPage == 7) {
     sgOled.print(F("ADC: ")); sgOled.println(sgAdc);
     sgOled.println(F("SW6 prev SW7 next"));
+  } else if (sgPage == 8) {
+    sgOled.print(F("WiFi at boot: ")); sgOled.println(sgWifiBootOn ? F("ON") : F("OFF"));
+    sgOled.println(F("Save to keep at boot"));
+    sgOled.println(F("< > page  SEL toggle"));
+  } else if (sgPage == 9) {
+    sgOled.println(F("Save settings"));
+    if (!sgPreferenceStore.ready()) sgOled.println(F("Storage unavailable"));
+    else if (sgSettingsNotice == SettingsNotice::Queued) sgOled.println(F("Waiting for idle..."));
+    else if (sgSettingsNotice == SettingsNotice::Failed) sgOled.println(F("Save failed: retry"));
+    else if (!sgPreferenceStore.matches(stargateCurrentPreferences())) sgOled.println(F("Unsaved changes"));
+    else if (sgSettingsNotice == SettingsNotice::Saved) sgOled.println(F("Settings saved"));
+    else if (sgSettingsNotice == SettingsNotice::Unchanged) sgOled.println(F("Already saved"));
+    else sgOled.println(F("Settings up to date"));
+    sgOled.println(F("< > page  SEL save"));
   }
   sgOled.display();
 }
