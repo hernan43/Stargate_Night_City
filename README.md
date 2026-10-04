@@ -4,7 +4,8 @@ Custom ESP8266 firmware for the [Stargate MSX](https://github.com/leomanes/starg
 
 If you aren't familiar with the Stargate MSX, it is a fantastic MSX compatible made using the [MSXgoauldSD_tn20k](https://github.com/jabadiagm/MSXgoauldSD_tn20k) as a base. You get a lot of modcons including HDMI output and SD card filesystem.
 
-More details can be foound in the [Stargate MSX forum post](https://www.msx.org/forum/msx-talk/hardware/stargate-msx-compatible-computer)
+More details can be found in the [Stargate MSX forum post](https://www.msx.org/forum/msx-talk/hardware/stargate-msx-compatible-computer).
+
 I had an issue with the stock firmware with the WiFi menu locking up the menu system. So I worked with ChatGPT to create an alternate firmware(_not necessarily better!_) that met my personal wants and needs. 
 
 I've used these little OLEDs for years and they can definitely be burned in so I did add a screen timeout so that I didn't have to worry about the screen being burned in.
