@@ -1,6 +1,6 @@
 # Night City Custom Firmware for Stargate MSX
 
-![Stock CPU speed being displayed on OLED](images/Stock_CPU.png)
+![Stock CPU speed being displayed on OLED](images/Stock_CPU.jpg)
 
 
 Custom ESP8266 firmware for the [Stargate MSX](https://github.com/leomanes/stargate) by [Leo Manes](https://github.com/leomanes).
