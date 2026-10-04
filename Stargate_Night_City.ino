@@ -1,37 +1,3 @@
-/*
-ESP8266-UNAPI-Firmware.ino
-    ESP8266 UNAPI Implementation.
-    Revision 1.5
-
-Requires Arduino IDE and ESP8266 libraries
-
-Copyright (c) 2019 - 2025 Oduvaldo Pavan Junior ( ducasp@ gmail.com )
-All rights reserved.
-
-HTTP functionality
-Copyright (c) 2025 Jeroen Taverne
-All rights reserved.
-
-If you integrate this on your hardware, please consider the 
-possibility of sending one piece of it as a thank you to the author :)
-Of course this is not mandatory, if you like the idea, contact the
-author in the e-mail address above.
-
-This file, that is part of ESP8266 UNAPI Firmware program, is free
-software: you can redistribute it and/or modify it under the terms
-of the GNU Lesser General Public License as published by the Free
-Software Foundation, either version 2.1 of the License, or (at your
-option) any later version.
-
-This file is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this file.  If not, see <https://www.gnu.org/licenses/>
-*/
-
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include <EEPROM.h>
@@ -2372,6 +2338,8 @@ void loop() {
     stargateApplyRadio();
   if (Serial.available())
     received_data_parser();
+  stargateApplyCpuWhenIdle(btState == RX_PARSER_IDLE && !bSerialUpdateInProgress &&
+                         uint32_t(millis() - sgLastSerial) >= 100);
   stargateSaveWhenIdle(btState == RX_PARSER_IDLE && !bSerialUpdateInProgress &&
                       uint32_t(millis() - sgLastSerial) >= 100);
   stargateUpdateRgb(btState == RX_PARSER_IDLE && !bSerialUpdateInProgress &&

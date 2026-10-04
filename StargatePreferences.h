@@ -45,21 +45,25 @@ inline uint32_t preferenceGet32(const uint8_t* in) {
 }
 inline void encodePreferences(const StargatePreferences& p, uint32_t generation,
                               uint8_t* out) {
-  out[0] = 'S'; out[1] = 'G'; out[2] = 'P'; out[3] = 'F'; out[4] = 1;
+  out[0] = 'S'; out[1] = 'G'; out[2] = 'P'; out[3] = 'F'; out[4] = 4;
   out[5] = p.bluetooth; out[6] = p.wifiAtBoot; out[7] = uint8_t(p.mode);
-  out[8] = p.color; out[9] = p.brightness; out[10] = p.count; out[11] = 0;
+  out[8] = p.color; out[9] = p.brightness; out[10] = p.count;
+  out[11] = 0;
   preferencePut32(out + 12, generation);
   preferencePut32(out + 16, preferenceCrc(out, 16));
 }
 inline bool decodePreferences(const uint8_t* in, size_t length,
                               StargatePreferences& out, uint32_t& generation) {
   if (length != SG_PREF_BYTES || in[0] != 'S' || in[1] != 'G' ||
-      in[2] != 'P' || in[3] != 'F' || in[4] != 1 || in[5] > 1 ||
-      in[6] > 1 || in[11] != 0 ||
+      in[2] != 'P' || in[3] != 'F' || (in[4] < 1 || in[4] > 4) || in[5] > 1 ||
+      in[6] > 1 || ((in[4] == 1 || in[4] == 4) && in[11] != 0) ||
       preferenceGet32(in + 16) != preferenceCrc(in, 16)) return false;
   StargatePreferences p;
   p.bluetooth = in[5]; p.wifiAtBoot = in[6]; p.mode = LightMode(in[7]);
   p.color = in[8]; p.brightness = in[9]; p.count = in[10];
+  // Validate obsolete profile indices, then discard them. Boot remains stock.
+  if (in[4] == 2 && ((in[11] & 15) > 8 || (in[11] >> 4) > 8)) return false;
+  if (in[4] == 3 && ((in[11] & 15) > 4 || (in[11] >> 4) > 4)) return false;
   if (!validPreferences(p)) return false;
   out = p;
   generation = preferenceGet32(in + 12);

@@ -10,6 +10,7 @@
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_NeoPixel.h>
 #include "Control.h"
+#include "CpuProfiles.h"
 #include "BoardConfig.h"
 #include "Lighting.h"
 #include "EffectsConfig.h"
@@ -17,6 +18,9 @@
 
 static RadioIntent sgRadio;
 static Press sgSwitch, sgKeys[3];
+static Press sgTurboSwitch;
+// PCB SW3 shorts ESP GPIO12 to GND when pressed.
+static constexpr unsigned SG_SW3_PIN = 12;
 static Si5351 sgClock;
 static Adafruit_SSD1306 sgOled(128, 32, &Wire, -1, 400000, 400000);
 static bool sgClockOK = false, sgOledOK = false;
@@ -26,16 +30,41 @@ static uint32_t sgSampleAt = 0, sgDrawAt = 0;
 static constexpr uint32_t SG_OLED_IDLE_MS = 30000;
 static uint32_t sgOledActivityAt = 0;
 static bool sgOledSleeping = false;
+static bool sgEditing = false;
+static constexpr uint32_t SG_MENU_IDLE_MS = 10000;
 
 void stargateOledTimeout(uint32_t now) {
+  if (uint32_t(now - sgOledActivityAt) >= SG_MENU_IDLE_MS &&
+      (sgPage != SG_CPU_PAGE || sgEditing)) {
+    sgPage = SG_CPU_PAGE;
+    sgEditing = false;
+    sgDrawAt = now - 250;
+  }
   if (!sgOledOK || sgOledSleeping ||
       uint32_t(now - sgOledActivityAt) < SG_OLED_IDLE_MS) return;
   sgOled.ssd1306_command(SSD1306_DISPLAYOFF);
   sgOledSleeping = true;
 }
-static constexpr unsigned SG_BT_PIN = 16, SG_RGB_PIN = 14, SG_PAGE_COUNT = 10;
+static constexpr unsigned SG_BT_PIN = 16, SG_RGB_PIN = 14, SG_PAGE_COUNT = 11;
 // Logical page IDs stay stable; this is the order seen from the startup screen.
-static constexpr unsigned SG_PAGE_ORDER[SG_PAGE_COUNT] = {6, 0, 1, 2, 3, 4, 5, 8, 7, 9};
+static constexpr unsigned SG_PAGE_ORDER[SG_PAGE_COUNT] = {6, 0, 1, 2, 3, 4, 5, 10, 8, 7, 9};
+static unsigned sgCpuSpeed = 0, sgCpuPending = 0;
+static bool sgCpuQueued = false, sgCpuFailed = false;
+
+void stargateToggleCpu() {
+  sgCpuPending = 1 - (sgCpuQueued ? sgCpuPending : sgCpuSpeed);
+  sgCpuQueued = true; sgCpuFailed = false;
+  sgDrawAt = millis() - 250;
+}
+
+// Called only from the top-level loop, outside an active host transaction.
+void stargateApplyCpuWhenIdle(bool idle) {
+  if (!sgCpuQueued || !idle || Serial.available() || !sgClockOK) return;
+  sgCpuQueued = false;
+  sgCpuFailed = sgClock.set_freq(uint64_t(SG_CPU_HZ[sgCpuPending]) * 100ULL, SI5351_CLK2) != 0;
+  if (!sgCpuFailed) sgCpuSpeed = sgCpuPending;
+  sgDrawAt = millis() - 250;
+}
 
 unsigned stargateAdjacentPage(unsigned current, bool next) {
   for (unsigned i = 0; i < SG_PAGE_COUNT; ++i) {
@@ -44,7 +73,7 @@ unsigned stargateAdjacentPage(unsigned current, bool next) {
   }
   return SG_CPU_PAGE;
 }
-static bool sgBtOn = SG_BT_DEFAULT_ON, sgEditing = false;
+static bool sgBtOn = SG_BT_DEFAULT_ON;
 static LightMode sgLightMode = LightMode::Off;
 static unsigned sgLightColor = 0, sgBrightness = SG_RGB_DEFAULT_BRIGHTNESS;
 static unsigned sgLedCount = SG_RGB_DEFAULT_COUNT;
@@ -120,6 +149,8 @@ void stargateMenuPress(unsigned key, bool actualWifi, uint32_t now) {
   if (key < 1 || key > 3) return;
   sgOledActivityAt = now;
   if (sgOledSleeping) {
+    sgPage = SG_CPU_PAGE;
+    sgEditing = false;
     if (sgOledOK) sgOled.ssd1306_command(SSD1306_DISPLAYON);
     sgOledSleeping = false;
     sgDrawAt = now - 250; // Refresh at the next opportunity.
@@ -142,6 +173,9 @@ void stargateMenuPress(unsigned key, bool actualWifi, uint32_t now) {
     digitalWrite(SG_BT_PIN, sgBtOn ? HIGH : LOW);
   } else if (sgPage >= 2 && sgPage <= 5) sgEditing = true;
   else if (sgPage == 8) sgWifiBootOn = !sgWifiBootOn;
+  else if (sgPage == 10) {
+    stargateToggleCpu();
+  }
   else if (sgPage == 9 && sgSettingsNotice != SettingsNotice::Queued) {
     // Snapshot the values now; later edits must not alter an already queued save.
     sgPendingPreferences = stargateCurrentPreferences();
@@ -177,6 +211,8 @@ void stargateHardwareBegin() {
   digitalWrite(SG_WIFI_LED_PIN, LOW);
   pinMode(SG_WIFI_LED_PIN, OUTPUT);
   pinMode(SW4_PIN, INPUT_PULLUP);
+  pinMode(SG_SW3_PIN, INPUT_PULLUP);
+  sgTurboSwitch.update(digitalRead(SG_SW3_PIN) == LOW, millis());
   Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setClock(100000);
   const uint8_t load = STARGATE_SI5351_LOAD_PF == 6 ? SI5351_CRYSTAL_LOAD_6PF :
@@ -184,6 +220,8 @@ void stargateHardwareBegin() {
                                                    SI5351_CRYSTAL_LOAD_10PF;
   if (sgClock.init(load, STARGATE_SI5351_CRYSTAL_HZ, 0)) {
     for (int i = 0; i < 3; ++i) sgClock.output_enable((si5351_clock)i, 0);
+    // Keep CPU tuning separate from SYS/PSG's PLL.
+    sgClock.set_ms_source(SI5351_CLK2, SI5351_PLLB);
     bool ok = !sgClock.set_freq(STOCK_CLOCK_CENTIHZ, SI5351_CLK0);
     ok = !sgClock.set_freq(STOCK_CLOCK_CENTIHZ, SI5351_CLK2) && ok;
 #if STARGATE_U2_FITTED == 0
@@ -224,6 +262,15 @@ void stargatePollButtons(bool actualWifi) {
   if (uint32_t(now - sgSampleAt) < 10) return;
   sgSampleAt = now;
   if (sgSwitch.update(digitalRead(SW4_PIN) == LOW, now)) sgRadio.toggle(actualWifi);
+  if (sgTurboSwitch.update(digitalRead(SG_SW3_PIN) == LOW, now)) {
+    stargateToggleCpu();
+    sgPage = SG_CPU_PAGE;
+    sgEditing = false;
+    sgOledActivityAt = now;
+    if (sgOledSleeping && sgOledOK) sgOled.ssd1306_command(SSD1306_DISPLAYON);
+    sgOledSleeping = false;
+    sgDrawAt = now - 250;
+  }
   sgAdc = analogRead(A0);
   const unsigned key = menuKey(sgAdc);
   for (unsigned i = 0; i < 3; ++i) {
@@ -244,7 +291,9 @@ void stargateDrawBadge(int16_t x, const char* label, bool lit) {
 
 void stargateDrawCpu(bool actualWifi) {
   // 128x32 terminal-style dashboard, using the existing pixel font.
-  sgOled.setCursor(0, 1); sgOled.print(F("CPU//STOCK"));
+  sgOled.setCursor(0, 1);
+  sgOled.print(sgCpuFailed ? F("CPU//ERROR") : sgCpuQueued ? F("CPU//WAIT") :
+               sgCpuSpeed == 0 ? F("CPU//STOCK") : F("CPU//TURBO"));
   sgOled.drawFastHLine(65, 3, 15, SSD1306_WHITE);
   sgOled.drawFastHLine(71, 6, 9, SSD1306_WHITE);
   stargateDrawBadge(86, "WF", actualWifi &&
@@ -253,9 +302,12 @@ void stargateDrawCpu(bool actualWifi) {
   sgOled.drawFastHLine(0, 10, 128, SSD1306_WHITE);
   // Configured clock, not a measured frequency. Keep all six decimal places.
   char speed[16];
-  snprintf(speed, sizeof(speed), "%lu.%06lu",
-           (unsigned long)(STOCK_CLOCK_CENTIHZ / 100000000ULL),
-           (unsigned long)((STOCK_CLOCK_CENTIHZ % 100000000ULL) / 100));
+  const uint32_t hz = SG_CPU_HZ[sgCpuSpeed];
+  if (hz < 10000000UL)
+    snprintf(speed, sizeof(speed), "%lu.%06lu", (unsigned long)(hz / 1000000UL),
+             (unsigned long)(hz % 1000000UL));
+  else snprintf(speed, sizeof(speed), "%lu.%05lu", (unsigned long)(hz / 1000000UL),
+                (unsigned long)((hz % 1000000UL) / 10));
   sgOled.setTextSize(2); sgOled.setCursor(2, 14); sgOled.print(speed);
   sgOled.setTextSize(1); sgOled.setCursor(105, 21); sgOled.print(F("MHz"));
   sgOled.drawFastVLine(101, 15, 12, SSD1306_WHITE);
@@ -322,12 +374,19 @@ void stargateDraw(bool actualWifi, bool protocolIdle) {
   } else if (sgPage == 7) {
     stargatePageTitle("DIAGNOSTICS");
     sgOled.print(F("Button ADC: ")); sgOled.println(sgAdc);
-    sgOled.println(F("Night City v0.3.1"));
+    sgOled.println(F("Night City v0.5.2"));
   } else if (sgPage == 8) {
     stargatePageTitle("WIFI AT BOOT");
     sgOled.print(sgWifiBootOn ? F("ON") : F("OFF"));
     sgOled.println(F(" / save to keep"));
     sgOled.println(F("SEL: toggle"));
+  } else if (sgPage == 10) {
+    stargatePageTitle("CPU MODE");
+    const unsigned mode = sgCpuQueued ? sgCpuPending : sgCpuSpeed;
+    sgOled.println(mode ? F("TURBO 1.5x / 5.369318") : F("STOCK / 3.579545 MHz"));
+    if (sgCpuFailed) sgOled.println(F("Apply failed: retry"));
+    else if (sgCpuQueued) sgOled.println(F("Waiting for idle..."));
+    else sgOled.println(F("SW3 / SEL: toggle"));
   } else if (sgPage == 9) {
     stargatePageTitle("SAVE SETTINGS");
     if (!sgPreferenceStore.ready()) sgOled.println(F("Storage unavailable"));
