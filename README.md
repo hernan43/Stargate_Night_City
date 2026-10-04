@@ -1,5 +1,8 @@
 # Night City Custom Firmware for Stargate MSX
 
+![Stock CPU speed being displayed on OLED](images/Stock_CPU.png)
+
+
 Custom ESP8266 firmware for the [Stargate MSX](https://github.com/leomanes/stargate) by [Leo Manes](https://github.com/leomanes).
 
 If you aren't familiar with the Stargate MSX, it is a fantastic MSX compatible made using the [MSXgoauldSD_tn20k](https://github.com/jabadiagm/MSXgoauldSD_tn20k) as a base. You get a lot of modcons including HDMI output and SD card filesystem.
