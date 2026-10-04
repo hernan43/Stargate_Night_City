@@ -1,4 +1,4 @@
-# Stargate Night City
+# Night City Custom Firmware for Stargate MSX
 
 Custom ESP8266 firmware for the [Stargate MSX](https://github.com/leomanes/stargate) by [Leo Manes](https://github.com/leomanes).
 
