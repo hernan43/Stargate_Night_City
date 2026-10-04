@@ -1,0 +1,57 @@
+# Arduino / ESP8266 build output
+/build/
+/out/
+/dist/
+/firmware/**/build/
+/firmware/**/*.bin
+/firmware/**/*.elf
+/firmware/**/*.hex
+/firmware/**/*.map
+/firmware/**/*.o
+/firmware/**/*.a
+*.ino.cpp
+*.ino.cpp.d
+
+# Locally installed toolchains and build caches
+/.arduino15/
+/.arduinoIDE/
+/.arduino-cli/
+/.pio/
+/.cache/
+/arduino-cli.yaml
+/compile_commands.json
+
+# Python test and tooling artifacts
+__pycache__/
+*.py[cod]
+/.venv/
+/venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Locally compiled host tests
+/tests/control_test
+/tests/test_cpu
+/tests/test_effects
+/tests/test_preferences
+/tests/*.exe
+/tests/*.o
+
+# Backups made by the ESP8266 core customization installer
+*.stargate-original
+
+# Editor-local files
+/.idea/
+/.vscode/
+*.swp
+*.swo
+*~
+
+# Operating-system metadata
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
