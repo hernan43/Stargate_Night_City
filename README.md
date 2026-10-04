@@ -126,7 +126,7 @@ After flashing:
 - Confirm the MSX boots normally.
 - Confirm the OLED opens on the CPU dashboard in **Stock** mode.
 - Press **SW3** to switch between Stock and 1.5× Turbo.
-- Confirm SW3 wakes the OLED and displays the CPU dashboard.
+- Confirm **SW3** wakes the OLED and displays the CPU dashboard.
 - Check Wi-Fi using **SW4** or the menu.
 - Check Bluetooth and RGB controls.
 - Confirm the menu returns home after 10 seconds idle and the OLED sleeps after 30 seconds.
