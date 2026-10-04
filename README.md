@@ -82,38 +82,14 @@ Accept any dependency installation prompts.
 Open:
 
 ```text
-firmware/Stargate_Night_City/Stargate_Night_City.ino
+Stargate_Night_City/Stargate_Night_City.ino
 ```
 
 The sketch folder and `.ino` file must both be named `Stargate_Night_City`. Keep all supplied supporting headers in that folder.
 
 If installing an update package, follow its included instructions and replace only the specified files. Update packages are not necessarily complete standalone sketches.
 
-### 5. Configure the hardware
-
-Review `BoardConfig.h` before compiling.
-
-For the configuration used by this project—verified v2.1.3 clock wiring, U2 installed, and a 25 MHz / 10 pF Si5351 module—the settings are:
-
-```cpp
-#define STARGATE_CLOCK_WIRING_VERIFIED 1
-#define STARGATE_U2_FITTED 1
-#define STARGATE_SI5351_CRYSTAL_HZ 25000000UL
-#define STARGATE_SI5351_LOAD_PF 10
-```
-
-Use values appropriate for your actual hardware.
-
-For this configuration:
-
-- JP2 and JP3 must be open.
-- Leave U2 fully installed, including pin 5.
-- The firmware leaves Si5351 CLK1 disabled because U2 supplies the PSG clock.
-- Turbo changes only the CPU clock.
-
-When updating a working installation, keep your existing `BoardConfig.h`.
-
-### 6. Select the Arduino settings
+### 5. Select the Arduino settings
 
 Under **Tools**, select:
 
@@ -131,7 +107,7 @@ The **160 MHz** setting controls the ESP8266 itself, not the MSX CPU.
 
 Keep your known-working flash mode, upload speed, and reset method when updating.
 
-### 7. Compile and flash
+### 6. Compile and flash
 
 1. Click **Verify** to compile the sketch.
 2. Connect your ESP8266 programmer using **3.3 V UART logic** and a common ground.
@@ -143,7 +119,7 @@ When using an external flasher, the Arduino-generated ESP8266 application binary
 
 Preserve the existing filesystem when updating so saved settings remain available. Avoid powering the board from two conflicting power sources.
 
-### 8. Check operation
+### 7. Check operation
 
 After flashing:
 
